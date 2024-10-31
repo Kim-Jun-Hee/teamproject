@@ -23,6 +23,9 @@ if model_file:
 # 비디오 파일 업로드
 uploaded_file = st.file_uploader("비디오 파일을 업로드하세요", type=["mp4", "mov", "avi"])
 
+# 결과 비디오 파일 업로드
+uploaded_result_video = st.file_uploader("결과 동영상을 업로드하세요", type=["mp4", "avi"])
+
 # 레이아웃 설정
 with st.container():
     col1, col2 = st.columns(2)
@@ -37,7 +40,10 @@ with st.container():
     with col2:
         st.header("사물 검출 결과 영상")
         result_placeholder = st.empty()
-        if "processed_video" in st.session_state and st.session_state["processed_video"] is not None:
+        if uploaded_result_video is not None:
+            # 업로드된 결과 비디오를 재생
+            result_placeholder.video(uploaded_result_video)
+        elif "processed_video" in st.session_state and st.session_state["processed_video"] is not None:
             result_placeholder.video(st.session_state["processed_video"])
         else:
             result_placeholder.markdown(
@@ -48,29 +54,6 @@ with st.container():
                 """,
                 unsafe_allow_html=True,
             )
-
-# 버튼 스타일 설정
-st.markdown(
-    """
-    <style>
-    .stButton > button {
-        background-color: #4d4d4d;
-        color: #ffffff;
-        font-weight: bold;
-        padding: 12px 24px;
-        font-size: 16px;
-        border: none;
-        border-radius: 8px;
-        cursor: pointer;
-        transition: background-color 0.3s;
-    }
-    .stButton > button:hover {
-        background-color: #333333;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
 
 # 사물 검출 버튼 클릭 이벤트 처리
 if st.button("사물 검출 실행") and uploaded_file and model_file:
