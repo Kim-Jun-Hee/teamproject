@@ -2,14 +2,14 @@ import streamlit as st
 from ultralytics import YOLO
 import tempfile
 import cv2
-import time
+from moviepy.editor import VideoFileClip
 import os
 
 # 페이지 레이아웃 설정
 st.set_page_config(layout="wide")
 
 # 제목
-st.title("비디오 사물 검출 앱")
+st.title("비디오 사물 검출 및 재인코딩 앱")
 
 # 모델 파일 업로드
 model_file = st.file_uploader("모델 파일을 업로드하세요", type=["pt"])
@@ -23,54 +23,31 @@ if model_file:
 # 비디오 파일 업로드
 uploaded_file = st.file_uploader("비디오 파일을 업로드하세요", type=["mp4", "mov", "avi"])
 
-# 결과 비디오 파일 업로드
-uploaded_result_video = st.file_uploader("결과 동영상을 업로드하세요", type=["mp4", "avi"])
+# 원본 영상 표시
+if uploaded_file is not None:
+    st.header("원본 영상")
+    st.video(uploaded_file)
 
-# 레이아웃 설정
-with st.container():
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.header("원본 영상")
-        if uploaded_file is not None:
-            st.video(uploaded_file)
-        else:
-            st.write("원본 영상을 표시하려면 비디오 파일을 업로드하세요.")
-
-    with col2:
-        st.header("사물 검출 결과 영상")
-        result_placeholder = st.empty()
-        if uploaded_result_video is not None:
-            # 업로드된 결과 비디오를 재생
-            result_placeholder.video(uploaded_result_video)
-        elif "processed_video" in st.session_state and st.session_state["processed_video"] is not None:
-            result_placeholder.video(st.session_state["processed_video"])
-        else:
-            result_placeholder.markdown(
-                """
-                <div style='width:100%; height:620px; background-color:#d3d3d3; display:flex; align-items:center; justify-content:center; border-radius:5px;'>
-                    <p style='color:#888;'>여기에 사물 검출 결과가 표시됩니다.</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-# 사물 검출 버튼 클릭 이벤트 처리
+# 사물 검출 실행 버튼
 if st.button("사물 검출 실행") and uploaded_file and model_file:
+    # 임시 파일 경로 생성
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_output:
         output_path = temp_output.name
 
+    # 원본 비디오 파일을 임시 파일로 저장
     with tempfile.NamedTemporaryFile(delete=False) as temp_input:
         temp_input.write(uploaded_file.read())
         temp_input_path = temp_input.name
 
+    # 비디오 처리 시작
     cap = cv2.VideoCapture(temp_input_path)
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # mp4 코덱으로 변경
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     fps = cap.get(cv2.CAP_PROP_FPS)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
+    # 프레임별로 사물 검출 수행
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
@@ -80,35 +57,39 @@ if st.button("사물 검출 실행") and uploaded_file and model_file:
         results = model(frame)
         detections = results[0].boxes if len(results) > 0 else []
 
-        if len(detections) > 0:
-            for box in detections:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                confidence = box.conf[0]
-                class_id = int(box.cls[0])
-                class_name = model.names[class_id]
-                label = f"{class_name} {confidence:.2f}"
+        # 검출된 객체에 대해 바운딩 박스 그리기
+        for box in detections:
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            confidence = box.conf[0]
+            class_id = int(box.cls[0])
+            class_name = model.names[class_id]
+            label = f"{class_name} {confidence:.2f}"
 
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
         out.write(frame)
 
     cap.release()
     out.release()
 
-    # 저장 후 대기 시간
-    time.sleep(1)
+    # moviepy를 사용해 재인코딩 수행
+    st.header("재인코딩된 결과 영상")
+    reencoded_path = output_path.replace(".mp4", "_reencoded.mp4")
+    clip = VideoFileClip(output_path)
+    clip.write_videofile(reencoded_path, codec="libx264", audio_codec="aac")
 
-    # 결과 비디오를 세션 상태에 저장
-    st.session_state["processed_video"] = output_path
-    result_placeholder.video(output_path)
-    st.success("사물 검출이 완료되어 오른쪽에 표시됩니다.")
-
-    # 다운로드 링크 제공
-    with open(output_path, "rb") as file:
+    # 재인코딩된 비디오 다운로드 버튼 제공
+    with open(reencoded_path, "rb") as file:
         st.download_button(
-            label="결과 영상 다운로드",
+            label="재인코딩된 결과 영상 다운로드",
             data=file,
-            file_name="detected_video.mp4",  # 확장자 .mp4로 변경
-            mime="video/mp4"  # MIME 타입을 mp4로 설정
+            file_name="reencoded_video.mp4",
+            mime="video/mp4"
         )
+
+# 결과 영상 재생을 위해 업로드
+uploaded_result = st.file_uploader("결과 영상을 업로드하세요", type=["mp4"])
+if uploaded_result is not None:
+    st.header("사물 검출 결과 영상")
+    st.video(uploaded_result)
